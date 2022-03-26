@@ -1,13 +1,9 @@
-use std::{hash::BuildHasherDefault, mem::Discriminant};
+use std::mem::Discriminant;
 
 use rowan::{Language, NodeOrToken, SyntaxElement, SyntaxNode};
 
-use indexmap::IndexMap;
 use itertools::Itertools;
-use rustc_hash::FxHashMap;
 use tree_edit_distance::{Edit, Node, Tree};
-
-type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<rustc_hash::FxHasher>>;
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub enum TreeDiffInsertPos<L: Language> {
@@ -17,10 +13,10 @@ pub enum TreeDiffInsertPos<L: Language> {
 
 #[derive(Debug)]
 pub struct TreeDiff<L: Language> {
-    pub replacements: FxHashMap<SyntaxElement<L>, SyntaxElement<L>>,
+    pub replacements: Vec<(SyntaxElement<L>, SyntaxElement<L>)>,
     pub deletions: Vec<SyntaxElement<L>>,
     // the vec as well as the indexmap are both here to preserve order
-    pub insertions: FxIndexMap<TreeDiffInsertPos<L>, Vec<SyntaxElement<L>>>,
+    pub insertions: Vec<(TreeDiffInsertPos<L>, Vec<SyntaxElement<L>>)>,
 }
 
 /// Finds a (potentially minimal) diff, which, applied to `from`, will result in `to`.
@@ -32,8 +28,8 @@ pub struct TreeDiff<L: Language> {
 pub fn diff<L: Language + 'static>(from: &SyntaxNode<L>, to: &SyntaxNode<L>) -> TreeDiff<L> {
     let (edits, _) = tree_edit_distance::diff(&tree_node(from), &tree_node(to));
     let mut diff = TreeDiff {
-        replacements: FxHashMap::default(),
-        insertions: FxIndexMap::default(),
+        replacements: Vec::new(),
+        insertions: Vec::new(),
         deletions: Vec::new(),
     };
     generate_diff(
@@ -164,29 +160,29 @@ fn generate_diff<L: Language>(
             TreeEdit::RemoveInsert => {
                 current_left = left_childs.next();
                 diff.replacements
-                    .insert(current_left.clone().unwrap(), right_childs.next().unwrap());
+                    .push((current_left.clone().unwrap(), right_childs.next().unwrap()));
             }
             TreeEdit::Insert(i) => {
                 let pos = TreeDiffInsertPos::After(current_left.clone().unwrap());
-                diff.insertions.insert(
+                diff.insertions.push((
                     pos,
                     (0..i)
                         .into_iter()
                         .filter_map(|_| right_childs.next())
                         .collect_vec(),
-                );
+                ));
             }
             TreeEdit::InsertFirst(i) => {
                 let pos = TreeDiffInsertPos::AsFirstChild(NodeOrToken::Node(
                     left_parent.clone().unwrap(),
                 ));
-                diff.insertions.insert(
+                diff.insertions.push((
                     pos,
                     (0..i)
                         .into_iter()
                         .filter_map(|_| right_childs.next())
                         .collect_vec(),
-                );
+                ));
             }
             TreeEdit::Remove => {
                 current_left = left_childs.next();
