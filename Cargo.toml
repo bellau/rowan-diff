@@ -1,0 +1,11 @@
+[package]
+name = "rowan-diff"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+rowan="0.15.4"
+tree-edit-distance = "0.3"
+itertools = "0.10.0"
+indexmap = "1.7.0"
+rustc-hash = "1.1.0"
