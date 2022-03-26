@@ -30,74 +30,75 @@ pub struct TreeDiff<L: Language> {
 ///
 /// This function tries to find a fine-grained diff.
 pub fn diff<L: Language + 'static>(from: &SyntaxNode<L>, to: &SyntaxNode<L>) -> TreeDiff<L> {
+    let (edits, _) = tree_edit_distance::diff(&tree_node(&from), &tree_node(&to));
     let mut diff = TreeDiff {
         replacements: FxHashMap::default(),
         insertions: FxIndexMap::default(),
         deletions: Vec::new(),
     };
-    let (from, to) = (from.clone().into(), to.clone().into());
-    let f = tree_node(&from);
-    let t = tree_node(&to);
-    let (edits, _) = tree_edit_distance::diff(&f, &t);
     generate_diff(
         &mut diff,
         generate_edit(&edits),
         None,
-        Some(from.clone()).into_iter(),
-        Some(to.clone()).into_iter(),
+        Some(from.clone().into()).into_iter(),
+        Some(to.clone().into()).into_iter(),
     );
-    return diff;
 
-    #[derive(Debug)]
-    struct TreeNode<L: Language>(TreeNodeKind<L>, Vec<TreeNode<L>>);
+    diff
+}
 
-    #[derive(Debug)]
-    enum TreeNodeKind<L: Language> {
-        Node(Discriminant<L::Kind>),
-        Token(String),
-    }
+#[derive(Debug)]
+struct TreeNode<L: Language>(TreeNodeKind<L>, Vec<TreeNode<L>>);
 
-    use std::mem::discriminant;
+#[derive(Debug)]
+enum TreeNodeKind<L: Language> {
+    Node(Discriminant<L::Kind>),
+    Token(String),
+}
 
-    impl<'n, L: Language> PartialEq for TreeNodeKind<L> {
-        fn eq(&self, other: &Self) -> bool {
-            match (self, other) {
-                (Self::Node(l0), Self::Node(r0)) => l0 == r0,
-                (Self::Token(l0), Self::Token(r0)) => l0 == r0,
-                _ => false,
-            }
+use std::mem::discriminant;
+
+impl<'n, L: Language> PartialEq for TreeNodeKind<L> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Node(l0), Self::Node(r0)) => l0 == r0,
+            (Self::Token(l0), Self::Token(r0)) => l0 == r0,
+            _ => false,
         }
     }
-    impl<'n, L: Language + 'static> Node<'n> for TreeNode<L> {
-        type Kind = &'n TreeNodeKind<L>;
-        fn kind(&'n self) -> Self::Kind {
-            &self.0
-        }
-
-        type Weight = u32;
-        fn weight(&'n self) -> Self::Weight {
-            1
-        }
+}
+impl<'n, L: Language + 'static> Node<'n> for TreeNode<L> {
+    type Kind = &'n TreeNodeKind<L>;
+    fn kind(&'n self) -> Self::Kind {
+        &self.0
     }
 
-    impl<'t, L: Language + 'static> Tree<'t> for TreeNode<L> {
-        type Children = std::slice::Iter<'t, TreeNode<L>>;
-        fn children(&'t self) -> Self::Children {
-            self.1.iter()
-        }
+    type Weight = u32;
+    fn weight(&'n self) -> Self::Weight {
+        1
     }
+}
 
-    fn tree_node<'n, L: Language + 'n>(elt: &SyntaxElement<L>) -> TreeNode<L> {
-        if let Some(node) = elt.as_node() {
-            TreeNode(
-                TreeNodeKind::Node(discriminant(&node.kind())),
-                node.children_with_tokens()
-                    .map(|c| tree_node(&c))
-                    .collect::<Vec<_>>(),
-            )
-        } else {
-            TreeNode(TreeNodeKind::Token(elt.to_string()), vec![])
-        }
+impl<'t, L: Language + 'static> Tree<'t> for TreeNode<L> {
+    type Children = std::slice::Iter<'t, TreeNode<L>>;
+    fn children(&'t self) -> Self::Children {
+        self.1.iter()
+    }
+}
+
+fn tree_node<'n, L: Language + 'n>(elt: &SyntaxNode<L>) -> TreeNode<L> {
+    TreeNode(
+        TreeNodeKind::Node(discriminant(&elt.kind())),
+        elt.children_with_tokens()
+            .map(|c| tree_element(&c))
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn tree_element<'n, L: Language + 'n>(elt: &SyntaxElement<L>) -> TreeNode<L> {
+    match elt {
+        NodeOrToken::Node(node) => tree_node(node),
+        NodeOrToken::Token(token) => TreeNode(TreeNodeKind::Token(token.to_string()), vec![]),
     }
 }
 
