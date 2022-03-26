@@ -30,7 +30,7 @@ pub struct TreeDiff<L: Language> {
 ///
 /// This function tries to find a fine-grained diff.
 pub fn diff<L: Language + 'static>(from: &SyntaxNode<L>, to: &SyntaxNode<L>) -> TreeDiff<L> {
-    let (edits, _) = tree_edit_distance::diff(&tree_node(&from), &tree_node(&to));
+    let (edits, _) = tree_edit_distance::diff(&tree_node(from), &tree_node(to));
     let mut diff = TreeDiff {
         replacements: FxHashMap::default(),
         insertions: FxIndexMap::default(),
@@ -113,24 +113,17 @@ enum TreeEdit {
 }
 
 fn generate_edit(edits: &[Edit]) -> Vec<TreeEdit> {
-    let ret = edits
+    edits
         .iter()
         .map(|n| match n {
             Edit::Insert => TreeEdit::Insert(1),
             Edit::Remove => TreeEdit::Remove,
             Edit::Replace(ledits) => {
                 let ledits = generate_edit(ledits);
-                if ledits.is_empty() {
+                if ledits.is_empty() || ledits.iter().all(|e| matches!(e, TreeEdit::Same)) {
                     TreeEdit::Same
                 } else {
-                    if ledits.iter().all(|e| match e {
-                        TreeEdit::Same => true,
-                        _ => false,
-                    }) {
-                        TreeEdit::Same
-                    } else {
-                        TreeEdit::Replace(ledits)
-                    }
+                    TreeEdit::Replace(ledits)
                 }
             }
         })
@@ -139,10 +132,7 @@ fn generate_edit(edits: &[Edit]) -> Vec<TreeEdit> {
             (TreeEdit::Insert(_), TreeEdit::Remove) => Ok(TreeEdit::RemoveInsert),
             _ => Err((a, b)),
         })
-        .group_by(|e| match e {
-            TreeEdit::Insert(_) => true,
-            _ => false,
-        })
+        .group_by(|e| matches!(e, TreeEdit::Insert(_)))
         .into_iter()
         .flat_map(|(is_insert, group)| {
             if is_insert {
@@ -157,8 +147,7 @@ fn generate_edit(edits: &[Edit]) -> Vec<TreeEdit> {
             (0, TreeEdit::Insert(i)) => TreeEdit::InsertFirst(i),
             (_, a) => a,
         })
-        .collect_vec();
-    return ret;
+        .collect_vec()
 }
 
 fn generate_diff<L: Language>(
@@ -183,8 +172,7 @@ fn generate_diff<L: Language>(
                     pos,
                     (0..i)
                         .into_iter()
-                        .map(|_| right_childs.next())
-                        .flatten()
+                        .filter_map(|_| right_childs.next())
                         .collect_vec(),
                 );
             }
@@ -196,8 +184,7 @@ fn generate_diff<L: Language>(
                     pos,
                     (0..i)
                         .into_iter()
-                        .map(|_| right_childs.next())
-                        .flatten()
+                        .filter_map(|_| right_childs.next())
                         .collect_vec(),
                 );
             }
@@ -207,7 +194,7 @@ fn generate_diff<L: Language>(
             }
             TreeEdit::Replace(edits) => {
                 current_left = left_childs.next();
-                let left_parent = current_left.clone().map(|f| f.into_node()).flatten();
+                let left_parent = current_left.clone().and_then(|f| f.into_node());
                 generate_diff(
                     diff,
                     edits,
@@ -218,8 +205,7 @@ fn generate_diff<L: Language>(
                         .unwrap(),
                     right_childs
                         .next()
-                        .map(|f| f.into_node())
-                        .flatten()
+                        .and_then(|f| f.into_node())
                         .map(|f| f.children_with_tokens())
                         .unwrap(),
                 );
